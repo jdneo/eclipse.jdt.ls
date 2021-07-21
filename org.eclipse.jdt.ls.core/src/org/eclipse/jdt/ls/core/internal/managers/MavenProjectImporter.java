@@ -100,7 +100,7 @@ public class MavenProjectImporter extends AbstractProjectImporter {
 		return !directories.isEmpty();
 	}
 
-	synchronized Set<MavenProjectInfo> getMavenProjectInfo(IProgressMonitor monitor) throws OperationCanceledException {
+	public synchronized Set<MavenProjectInfo> getMavenProjectInfo(IProgressMonitor monitor) throws OperationCanceledException {
 		if (projectInfos == null) {
 			projectInfos = collectMavenProjectInfo(monitor);
 		}

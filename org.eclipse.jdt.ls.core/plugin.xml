@@ -86,6 +86,9 @@
                   id="java.project.getAll">
             </command>
             <command
+                  id="java.project.getAllWithMetaInfo">
+            </command>
+            <command
                   id="java.project.refreshDiagnostics">
             </command>
             <command

@@ -16,15 +16,20 @@ package org.eclipse.jdt.ls.core.internal.commands;
 import java.io.File;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
+import org.eclipse.buildship.core.internal.configuration.GradleProjectNature;
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspace;
@@ -55,8 +60,14 @@ import org.eclipse.jdt.ls.core.internal.IConstants;
 import org.eclipse.jdt.ls.core.internal.JDTUtils;
 import org.eclipse.jdt.ls.core.internal.JavaLanguageServerPlugin;
 import org.eclipse.jdt.ls.core.internal.ProjectUtils;
+import org.eclipse.jdt.ls.core.internal.ResourceUtils;
+import org.eclipse.jdt.ls.core.internal.handlers.JDTLanguageServer;
 import org.eclipse.jdt.ls.core.internal.managers.IBuildSupport;
+import org.eclipse.jdt.ls.core.internal.managers.MavenProjectImporter;
 import org.eclipse.jdt.ls.core.internal.managers.ProjectsManager;
+import org.eclipse.m2e.core.internal.IMavenConstants;
+import org.eclipse.m2e.core.project.MavenProjectInfo;
+import org.gradle.tooling.model.ProjectModel;
 
 public class ProjectCommand {
 
@@ -213,6 +224,48 @@ public class ProjectCommand {
 			javaProjects.add(ProjectUtils.getProjectRealFolder(javaProject.getProject()).toFile().toURI());
 		}
 		return javaProjects;
+	}
+
+	public static Map<String, List<String>> getAllJavaProjectsWithMetaInfo(ArrayList<String> uris) {
+		IProject[] allProjects = ProjectUtils.getAllProjects();
+		Map<String, List<String>> result = new HashMap<>();
+		Set<Path> directories = new HashSet<>();
+		for (String uri : uris) {
+			IPath filePath = ResourceUtils.canonicalFilePathFromURI(uri);
+			if (filePath == null) {
+				continue;
+			}
+			directories.add(filePath.removeLastSegments(1).toFile().toPath());
+		}
+
+		for (IPath rootPath: JavaLanguageServerPlugin.getPreferencesManager().getPreferences().getRootPaths()) {
+			MavenProjectImporter mavenImporter = new MavenProjectImporter();
+			File rootFolder = rootPath.toFile();
+			mavenImporter.initialize(rootFolder, directories);
+			Set<MavenProjectInfo> infoSet = mavenImporter.getMavenProjectInfo(new NullProgressMonitor());
+			for (MavenProjectInfo info: infoSet) {
+				List<String> subProjectUris = new ArrayList<>();
+				for (MavenProjectInfo subModule: info.getProjects()) {
+					subProjectUris.add(subModule.getPomFile().toURI().toString());
+				}
+				result.putIfAbsent(info.getPomFile().toURI().toString(), subProjectUris);
+			}
+		}
+		return result;
+		// Map<URI, Map<String, Object>> result = new HashMap<>();
+		// for (IProject project : ProjectUtils.getAllProjects()) {
+		// 	if (project.equals(ProjectsManager.getDefaultProject())) {
+		// 		continue;
+		// 	}
+		// 	Map<String, Object> metaInfo = new HashMap<>();
+		// 	if (ProjectUtils.isGradleProject(project)) {
+		// 		metaInfo.put("natureId", GradleProjectNature.ID);
+		// 	} else if (ProjectUtils.isMavenProject(project)) {
+		// 		metaInfo.put("natureId", IMavenConstants.NATURE_ID);
+		// 	}
+		// 	result.put(ProjectUtils.getProjectRealFolder(project).toFile().toURI(), metaInfo);
+		// }
+		// return result;
 	}
 
 	public static void importProject(IProgressMonitor monitor) {

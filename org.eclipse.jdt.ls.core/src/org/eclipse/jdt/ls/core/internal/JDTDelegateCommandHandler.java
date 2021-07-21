@@ -82,6 +82,8 @@ public class JDTDelegateCommandHandler implements IDelegateCommandHandler {
 					return ProjectCommand.isTestFile((String) arguments.get(0));
 				case "java.project.getAll":
 					return ProjectCommand.getAllJavaProjects();
+				case "java.project.getAllWithMetaInfo":
+					return ProjectCommand.getAllJavaProjectsWithMetaInfo((ArrayList<String>) arguments.get(0));
 				case "java.project.refreshDiagnostics":
 					return DiagnosticsCommand.refreshDiagnostics((String) arguments.get(0), (String) arguments.get(1), (boolean) arguments.get(2));
 				case "java.project.provideSemanticTokens":
