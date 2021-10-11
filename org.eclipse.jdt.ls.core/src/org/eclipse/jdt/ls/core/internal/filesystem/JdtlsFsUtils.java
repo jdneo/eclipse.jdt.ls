@@ -41,7 +41,11 @@ public class JdtlsFsUtils {
         IJavaProject.CLASSPATH_FILE_NAME
     ));
 
-    public static boolean shouldStoreInMetadataFolder(IPath location) {
+    public static boolean shouldStoreInMetadataFolder(IPath location) { 
+        if (!isAutoMode()) {
+            return false;
+        }
+
         if (location == null || location.segmentCount() < 2) {
             return false;
         }
@@ -55,10 +59,6 @@ public class JdtlsFsUtils {
         }
 
         if (!METADATA_NAMES.contains(location.lastSegment())) {
-            return false;
-        }
-
-        if (!isAutoMode()) {
             return false;
         }
 

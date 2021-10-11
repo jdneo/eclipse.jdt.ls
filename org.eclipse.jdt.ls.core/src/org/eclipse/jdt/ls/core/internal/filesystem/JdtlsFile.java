@@ -40,13 +40,13 @@ public class JdtlsFile extends LocalFile {
     @Override
     public String[] childNames(int options, IProgressMonitor monitor) {
         String[] childNames = super.childNames(options, monitor);
-        IPath filePath = ResourceUtils.filePathFromURI(this.toURI().toString());
-        IContainer container = ResourcesPlugin.getWorkspace().getRoot().getContainerForLocation(filePath);
-        if (!(container instanceof IProject)) {
+        if (!JdtlsFsUtils.isAutoMode()) {
             return childNames;
         }
 
-        if (!JdtlsFsUtils.isAutoMode()) {
+        IPath filePath = ResourceUtils.filePathFromURI(this.toURI().toString());
+        IContainer container = ResourcesPlugin.getWorkspace().getRoot().getContainerForLocation(filePath);
+        if (!(container instanceof IProject)) {
             return childNames;
         }
 
