@@ -26,6 +26,9 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.IJavaProject;
 
+/**
+ * Utilities of the file system implementation.
+ */
 public class JdtlsFsUtils {
     private JdtlsFsUtils() {}
 
@@ -35,13 +38,36 @@ public class JdtlsFsUtils {
 
     public static final String METADATA_LOCATION_KEY = "java.project.metadataLocation";
 
+    /**
+     * The metadata files
+     */
     private static final Set<String> METADATA_NAMES = new HashSet<>(Arrays.asList(
         IProjectDescription.DESCRIPTION_FILE_NAME,
         EclipsePreferences.DEFAULT_PREFERENCES_DIRNAME,
         IJavaProject.CLASSPATH_FILE_NAME
     ));
 
-    public static boolean shouldStoreInMetadataFolder(IPath location) { 
+    /**
+     * The mode of the file system. If it's in auto mode, the metadata files will be stored
+     * in the workspace metadata folder. See: {@link JdtlsFsUtils#shouldStoreInMetadataFolder}.
+     */
+    private static final String FS_AUTO_MODE = "auto";
+
+    /**
+     * Determine whether the resource should be stored in workspace's metadata folder.
+     * <p>
+     * The file will be stored in workspace's metadata folder when following conditions meet:
+     * <ul>
+     *   <li>The system property shows that it's allowed to store them in workspace.</li>
+     *   <li>The file belongs to the metadata file defined in {@link JdtlsFsUtils#METADATA_NAMES}.</li>
+     *   <li>The project's root path does not contain any of the metadata files.</li>
+     * </ul>
+     * </p>
+     * 
+     * @param location the path of the resource.
+     * @return whether the resource needs to be stored in workspace's metadata folder.
+     */
+    static boolean shouldStoreInMetadataFolder(IPath location) { 
         if (!isAutoMode()) {
             return false;
         }
@@ -70,7 +96,12 @@ public class JdtlsFsUtils {
         return !persistedAtRoot;
     }
 
-    public static String getProjectName(IPath location) {
+    /**
+     * Get the name of the given resource's belonging project.
+     * @param location the path of the resource.
+     * @return the name of the given resource's belonging project.
+     */
+    static String getProjectName(IPath location) {
         int resultProjectPathSegments = 0;
         IProject belongingProject = null;
         IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects(IContainer.INCLUDE_HIDDEN);
@@ -92,7 +123,14 @@ public class JdtlsFsUtils {
         return belongingProject.getName();
     }
 
-    public static IPath getMetaDataFilePath(String projectName, IPath path) {
+    /**
+     * Get the redirected path of the input path. The path will be redirected to
+     * the workspace's metadata folder ({@link JdtlsFsUtils#METADATA_FOLDER_PATH}).
+     * @param projectName name of the project.
+     * @param path path needs to be redirected.
+     * @return the redirected path.
+     */
+    static IPath getMetaDataFilePath(String projectName, IPath path) {
         if (path.segmentCount() == 1) {
             return METADATA_FOLDER_PATH.append(projectName).append(path);
         }
@@ -117,12 +155,15 @@ public class JdtlsFsUtils {
         return null;
     }
 
-    public static boolean isAutoMode() {
+    /**
+     * Check the current file system working mode.
+     * @return whether the file system is working in auto mode now.
+     */
+    static boolean isAutoMode() {
         String location = System.getProperty(METADATA_LOCATION_KEY);
-        if ("auto".equals(location)) {
+        if (FS_AUTO_MODE.equals(location)) {
             return true;
         }
-
         return false;
     }
 }

@@ -31,12 +31,24 @@ import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.ls.core.internal.ResourceUtils;
 
+/**
+ * JDT.LS's own implementation of files in the local operating system's file system.
+ * The instance of this class will be returned by {@link JdtlsFileSystem}.
+ */
 public class JdtlsFile extends LocalFile {
 
     public JdtlsFile(File file) {
         super(file);
     }
 
+    /**
+     * {@inheritDoc}
+     * 
+     * <p>
+     * Since the metadata files may be redirected into the workspace,
+     * we override the method to make sure those files are not missed.
+     * </p>
+     */
     @Override
     public String[] childNames(int options, IProgressMonitor monitor) {
         String[] childNames = super.childNames(options, monitor);
@@ -85,7 +97,9 @@ public class JdtlsFile extends LocalFile {
         if (JdtlsFsUtils.shouldStoreInMetadataFolder(new Path(file.getPath()).append(path))) {
             String projectName = JdtlsFsUtils.getProjectName(new Path(file.getPath()).append(path));
             IPath realPath = JdtlsFsUtils.getMetaDataFilePath(projectName, path);
-            return new LocalFile(realPath.toFile());
+            if (realPath != null) {
+                return new LocalFile(realPath.toFile());
+            }
         }
 
         return new JdtlsFile(new Path(file.getPath()).append(path).toFile());

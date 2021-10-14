@@ -20,12 +20,20 @@ import org.eclipse.core.internal.filesystem.local.LocalFileSystem;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.ls.core.internal.ResourceUtils;
 
+/**
+ * JDT.LS's own implementation of file system to handle the 'file' scheme uri.
+ * The purpose of this implementation is to allow the project metadata files (.project, .classpath, .settings/)
+ * can be persisted out of the project root.
+ */
 public class JdtlsFileSystem extends LocalFileSystem {
 
     @Override
     public IFileStore getStore(IPath path) {
         if (JdtlsFsUtils.shouldStoreInMetadataFolder(path)) {
-            return new JdtlsFile(JdtlsFsUtils.getMetaDataFilePath("", path).toFile()); 
+            IPath realPath = JdtlsFsUtils.getMetaDataFilePath("", path);
+            if (realPath != null) {
+                return new JdtlsFile(realPath.toFile()); 
+            }
         }
 
         return new JdtlsFile(path.toFile());
