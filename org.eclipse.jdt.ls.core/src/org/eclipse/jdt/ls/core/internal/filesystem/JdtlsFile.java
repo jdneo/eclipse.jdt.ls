@@ -21,10 +21,8 @@ import java.util.Set;
 import org.eclipse.core.filesystem.IFileStore;
 import org.eclipse.core.internal.filesystem.local.LocalFile;
 import org.eclipse.core.internal.preferences.EclipsePreferences;
-import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IProjectDescription;
-import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
@@ -57,13 +55,13 @@ public class JdtlsFile extends LocalFile {
         }
 
         IPath filePath = ResourceUtils.filePathFromURI(this.toURI().toString());
-        IContainer container = ResourcesPlugin.getWorkspace().getRoot().getContainerForLocation(filePath);
-        if (!(container instanceof IProject)) {
+        IProject project = JdtlsFsUtils.getProject(filePath);
+        if (project == null || !project.getLocation().equals(filePath)) {
             return childNames;
         }
 
         Set<String> childNameSet = new LinkedHashSet<>(Arrays.asList(childNames));
-        String projectName = JdtlsFsUtils.getProjectName(new Path(file.getPath()));
+        String projectName = project.getName();
         if (!childNameSet.contains(IProjectDescription.DESCRIPTION_FILE_NAME) &&
                 JdtlsFsUtils.METADATA_FOLDER_PATH.append(projectName).append(IProjectDescription.DESCRIPTION_FILE_NAME).toFile().exists()) {
             childNameSet.add(IProjectDescription.DESCRIPTION_FILE_NAME);
@@ -83,10 +81,17 @@ public class JdtlsFile extends LocalFile {
 
     @Override
     public IFileStore getChild(String name) {
-        if (JdtlsFsUtils.shouldStoreInMetadataFolder(new Path(this.filePath).append(name))) {
-            String projectName = JdtlsFsUtils.getProjectName(new Path(file.getPath()));
-            IPath realPath = JdtlsFsUtils.METADATA_FOLDER_PATH.append(projectName).append(name);
-            return new LocalFile(realPath.toFile());
+        IPath path = new Path(this.filePath).append(name);
+        if (JdtlsFsUtils.shouldStoreInMetadataFolder(path)) {
+            IProject project = JdtlsFsUtils.getProject(path);
+            if (project == null) {
+                return new JdtlsFile(new File(file, name));
+            }
+            String projectName = project.getName();
+            IPath realPath = JdtlsFsUtils.getMetaDataFilePath(projectName, new Path(name));
+            if (realPath != null) {
+                return new JdtlsFile(realPath.toFile());
+            }
         }
 
         return new JdtlsFile(new File(file, name));
@@ -94,14 +99,19 @@ public class JdtlsFile extends LocalFile {
 
     @Override
     public IFileStore getFileStore(IPath path) {
-        if (JdtlsFsUtils.shouldStoreInMetadataFolder(new Path(file.getPath()).append(path))) {
-            String projectName = JdtlsFsUtils.getProjectName(new Path(file.getPath()).append(path));
+        IPath fullPath = new Path(file.getPath()).append(path);
+        if (JdtlsFsUtils.shouldStoreInMetadataFolder(fullPath)) {
+            IProject project = JdtlsFsUtils.getProject(fullPath);
+            if (project == null) {
+                return new JdtlsFile(fullPath.toFile());
+            }
+            String projectName = project.getName();
             IPath realPath = JdtlsFsUtils.getMetaDataFilePath(projectName, path);
             if (realPath != null) {
-                return new LocalFile(realPath.toFile());
+                return new JdtlsFile(realPath.toFile());
             }
         }
 
-        return new JdtlsFile(new Path(file.getPath()).append(path).toFile());
+        return new JdtlsFile(fullPath.toFile());
     }
 }

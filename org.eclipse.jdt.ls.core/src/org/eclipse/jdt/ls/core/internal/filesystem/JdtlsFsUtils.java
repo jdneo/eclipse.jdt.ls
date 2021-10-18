@@ -36,7 +36,22 @@ public class JdtlsFsUtils {
     public static final IPath METADATA_FOLDER_PATH = ResourcesPlugin.getWorkspace().getRoot().getLocation().append(".metadata").append(".plugins")
             .append(ResourcesPlugin.PI_RESOURCES).append(".projects");
 
+    /**
+     * The system property key to specify the file system mode.
+    */
     public static final String METADATA_LOCATION_KEY = "java.project.metadataLocation";
+
+    /**
+     * The auto mode of the file system. In auto mode, the metadata files will be stored
+     * in the workspace metadata folder. See: {@link JdtlsFsUtils#shouldStoreInMetadataFolder}.
+     */
+    public static final String FS_AUTO_MODE = "auto";
+
+    /**
+     * The auto mode of the file system. In legacy mode, the metadata files will be stored
+     * at the project root.
+     */
+    public static final String FS_LEGACY_MODE = "legacy";
 
     /**
      * The metadata files
@@ -46,12 +61,6 @@ public class JdtlsFsUtils {
         EclipsePreferences.DEFAULT_PREFERENCES_DIRNAME,
         IJavaProject.CLASSPATH_FILE_NAME
     ));
-
-    /**
-     * The mode of the file system. If it's in auto mode, the metadata files will be stored
-     * in the workspace metadata folder. See: {@link JdtlsFsUtils#shouldStoreInMetadataFolder}.
-     */
-    private static final String FS_AUTO_MODE = "auto";
 
     /**
      * Determine whether the resource should be stored in workspace's metadata folder.
@@ -67,7 +76,8 @@ public class JdtlsFsUtils {
      * @param location the path of the resource.
      * @return whether the resource needs to be stored in workspace's metadata folder.
      */
-    static boolean shouldStoreInMetadataFolder(IPath location) { 
+    static boolean shouldStoreInMetadataFolder(IPath location) {
+        System.out.println(location.toString());
         if (!isAutoMode()) {
             return false;
         }
@@ -88,20 +98,19 @@ public class JdtlsFsUtils {
             return false;
         }
 
-        IPath projectLocation = location.removeLastSegments(1);
-        boolean persistedAtRoot = METADATA_NAMES.stream().anyMatch(name -> {
-            return projectLocation.append(name).toFile().exists();
-        });
+        if (!METADATA_FOLDER_PATH.isPrefixOf(location) && location.toFile().exists()) {
+            return false;
+        }
 
-        return !persistedAtRoot;
+        return true;
     }
 
     /**
-     * Get the name of the given resource's belonging project.
+     * Get the given resource's belonging project.
      * @param location the path of the resource.
-     * @return the name of the given resource's belonging project.
+     * @return the given resource's belonging project.
      */
-    static String getProjectName(IPath location) {
+    static IProject getProject(IPath location) {
         int resultProjectPathSegments = 0;
         IProject belongingProject = null;
         IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects(IContainer.INCLUDE_HIDDEN);
@@ -120,7 +129,7 @@ public class JdtlsFsUtils {
             return null;
         }
 
-        return belongingProject.getName();
+        return belongingProject;
     }
 
     /**
@@ -159,7 +168,7 @@ public class JdtlsFsUtils {
      * Check the current file system working mode.
      * @return whether the file system is working in auto mode now.
      */
-    static boolean isAutoMode() {
+    public static boolean isAutoMode() {
         String location = System.getProperty(METADATA_LOCATION_KEY);
         if (FS_AUTO_MODE.equals(location)) {
             return true;
