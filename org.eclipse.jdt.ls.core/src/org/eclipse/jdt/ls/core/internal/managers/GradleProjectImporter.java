@@ -40,12 +40,16 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.MultiStatus;
+import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.SubMonitor;
 import org.eclipse.debug.core.ILaunchManager;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.launching.IVMInstall;
 import org.eclipse.jdt.launching.JavaRuntime;
 import org.eclipse.jdt.ls.core.internal.AbstractProjectImporter;
+import org.eclipse.jdt.ls.core.internal.IConstants;
 import org.eclipse.jdt.ls.core.internal.JavaLanguageServerPlugin;
 import org.eclipse.jdt.ls.core.internal.ProjectUtils;
 import org.eclipse.jdt.ls.core.internal.preferences.PreferenceManager;
@@ -164,7 +168,13 @@ public class GradleProjectImporter extends AbstractProjectImporter {
 		subMonitor.setTaskName(IMPORTING_GRADLE_PROJECTS);
 		JavaLanguageServerPlugin.logInfo(IMPORTING_GRADLE_PROJECTS);
 		subMonitor.worked(1);
-		directories.forEach(d -> importDir(d, subMonitor.newChild(1)));
+		MultiStatus failedStatusCollection = new MultiStatus(IConstants.PLUGIN_ID, -1, "Errors occurred during import of Gradle projects", null);
+		for (Path directory : directories) {
+			IStatus importStatus = importDir(directory, subMonitor.newChild(1));
+			if (importStatus != null && importStatus.getSeverity() == IStatus.ERROR) {
+				failedStatusCollection.add(importStatus);
+			}
+		}
 		// store the digest for the imported gradle projects.
 		ProjectUtils.getGradleProjects().forEach(project -> {
 			File buildFile = project.getFile(BUILD_GRADLE_DESCRIPTOR).getLocation().toFile();
@@ -187,13 +197,16 @@ public class GradleProjectImporter extends AbstractProjectImporter {
 			}
 		});
 		subMonitor.done();
+		if (!failedStatusCollection.isOK()) {
+			throw new CoreException(failedStatusCollection);
+		}
 	}
 
-	private void importDir(Path projectFolder, IProgressMonitor monitor) {
+	private IStatus importDir(Path projectFolder, IProgressMonitor monitor) {
 		if (monitor.isCanceled()) {
-			return;
+			return null;
 		}
-		startSynchronization(projectFolder, monitor);
+		return startSynchronization(projectFolder, monitor);
 	}
 
 
@@ -299,16 +312,16 @@ public class GradleProjectImporter extends AbstractProjectImporter {
 		return null;
 	}
 
-	protected void startSynchronization(Path projectFolder, IProgressMonitor monitor) {
+	protected IStatus startSynchronization(Path projectFolder, IProgressMonitor monitor) {
 		File location = projectFolder.toFile();
 		boolean shouldSynchronize = shouldSynchronize(location);
 		if (shouldSynchronize) {
 			BuildConfiguration build = getBuildConfiguration(projectFolder);
 			SynchronizationResult result = GradleCore.getWorkspace().createBuild(build).synchronize(monitor);
-			if (!result.getStatus().isOK()) {
-				JavaLanguageServerPlugin.log(result.getStatus());
-			}
+			return result.getStatus();
 		}
+
+		return Status.OK_STATUS;
 	}
 
 	public static BuildConfiguration getBuildConfiguration(Path rootFolder) {

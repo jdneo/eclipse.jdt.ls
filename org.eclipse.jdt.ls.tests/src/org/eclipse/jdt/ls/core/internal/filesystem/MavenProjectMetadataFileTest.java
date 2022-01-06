@@ -98,7 +98,6 @@ public class MavenProjectMetadataFileTest extends AbstractMavenBasedTest {
 		IFile pom = project.getFile("pom.xml");
 		String content = ResourceUtils.getContent(pom);
 		content = content.replaceAll(">11<", ">1.8<");
-		content = content.replace(">11<", ">1.8<");
 		ResourceUtils.setContent(pom, content);
 		projectsManager.updateProject(project, false);
 		waitForBackgroundJobs();

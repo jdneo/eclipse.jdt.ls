@@ -240,6 +240,7 @@ final public class InitHandler extends BaseInitHandler {
 					ProjectsManager.setAutoBuilding(preferenceManager.getPreferences().isAutobuildEnabled());
 					JavaLanguageServerPlugin.logInfo("Workspace initialized in " + (System.currentTimeMillis() - start) + "ms");
 					connection.sendStatus(ServiceStatus.Started, "Ready");
+					projectsManager.reportProjectsStatus(false /*reportOk*/);
 				} catch (OperationCanceledException e) {
 					connection.sendStatus(ServiceStatus.Error, "Initialization has been cancelled.");
 					return Status.CANCEL_STATUS;

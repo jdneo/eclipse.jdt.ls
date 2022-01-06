@@ -18,7 +18,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,6 +38,7 @@ import java.util.Set;
 
 import org.eclipse.core.internal.resources.Resource;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IMarker;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
@@ -45,6 +51,7 @@ import org.eclipse.jdt.ls.core.internal.JavaClientConnection.JavaLanguageClient;
 import org.eclipse.jdt.ls.core.internal.JavaLanguageServerPlugin;
 import org.eclipse.jdt.ls.core.internal.ProjectUtils;
 import org.eclipse.jdt.ls.core.internal.ResourceUtils;
+import org.eclipse.jdt.ls.core.internal.ServiceStatus;
 import org.eclipse.jdt.ls.core.internal.WorkspaceHelper;
 import org.eclipse.jdt.ls.core.internal.handlers.BuildWorkspaceHandler;
 import org.eclipse.jdt.ls.core.internal.handlers.JDTLanguageServer;
@@ -52,6 +59,7 @@ import org.eclipse.lsp4j.InitializeParams;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * @author Fred Bricon
@@ -247,5 +255,24 @@ public class ProjectsManagerTest extends AbstractProjectsManagerBasedTest {
 		for (IProject project : allProjects) {
 			assertTrue(expectedProjects.contains(project.getName()));
 		}
+	}
+
+	@Test
+	public void testSendingProjectStatus() throws Exception {
+		importProjects("gradle/simple-gradle");
+		IProject project = WorkspaceHelper.getProject("simple-gradle");
+
+		JDTLanguageServer server = mock(JDTLanguageServer.class);
+		JavaLanguageServerPlugin.getInstance().setProtocol(server);
+		doNothing().when(server).sendStatus(any(), any());
+
+		projectsManager.updateProject(project, false);
+		waitForBackgroundJobs();
+
+		ArgumentCaptor<ServiceStatus> status = ArgumentCaptor.forClass(ServiceStatus.class);
+		ArgumentCaptor<String> msg = ArgumentCaptor.forClass(String.class);
+		verify(server, times(1)).sendStatus(status.capture(), msg.capture());
+		assertEquals(ServiceStatus.ProjectStatus, status.getValue());
+		assertEquals("OK", status.getValue(), msg.getValue());
 	}
 }
