@@ -1,3 +1,9 @@
+import org.gradle.api.Plugin
+import org.gradle.api.Project
+import org.gradle.api.Task
+import org.gradle.api.UnknownTaskException
+import org.gradle.api.file.SourceDirectorySet
+import org.gradle.api.tasks.SourceSet
 import org.gradle.plugins.ide.eclipse.model.Classpath
 import org.gradle.plugins.ide.eclipse.model.ClasspathEntry
 import org.gradle.plugins.ide.eclipse.model.EclipseModel
@@ -42,55 +48,61 @@ class ProtobufPatchPlugin implements Plugin<Project> {
     @Override
     void apply(Project project) {
         project.afterEvaluate {
-            project.plugins.withId(ECLIPSE_PLUGIN) {
-                project.plugins.withId(PROTOBUF_PLUGIN) {
-                    EclipseModel model = project.getExtensions().findByType(EclipseModel)
-                    model.classpath.file.whenMerged { Classpath cp ->
-                        File projectDir = project.getProjectDir()
-                        for (final String taskName : TASK_NAMES) {
-                            Task task = getTaskByName(project, taskName)
-                            if (task == null) {
-                                continue
-                            }
-
-                            Object sourceSetObj = getSourceSet(task);
-                            if (!(sourceSetObj instanceof SourceSet)) {
-                                continue
-                            }
-                            String sourceSetName = ((SourceSet) sourceSetObj).name
-
-                            Object outputSourceDirectorySet = getOutputSourceDirectorySet(task)
-                            if (!(outputSourceDirectorySet instanceof SourceDirectorySet)) {
-                                continue;
-                            }
-                            SourceDirectorySet sourceDirectorySet = (SourceDirectorySet) outputSourceDirectorySet
-                            Set<File> srcDirs = sourceDirectorySet.getSrcDirs()
-                            for (File srcDir : srcDirs) {
-                                // buildship requires the folder exists on disk, otherwise
-                                // it will be ignored when updating classpath file, see:
-                                // https://github.com/eclipse/buildship/issues/1196
-                                srcDir.mkdirs();
-
-                                String relativePath = projectDir.toURI().relativize(srcDir.toURI()).getPath()
-                                // remove trailing slash
-                                if (relativePath.endsWith("/")) {
-                                    relativePath = relativePath.substring(0, relativePath.length() - 1)
+            project.plugins.withId("java") {
+                project.plugins.withId(ECLIPSE_PLUGIN) {
+                    project.plugins.withId(PROTOBUF_PLUGIN) {
+                        EclipseModel model = project.getExtensions().findByType(EclipseModel)
+                        model.classpath.file.whenMerged { Classpath cp ->
+                            File projectDir = project.getProjectDir()
+                            for (final String taskName : TASK_NAMES) {
+                                Task task = getTaskByName(project, taskName)
+                                if (task == null) {
+                                    continue
                                 }
 
-                                SourceFolder entry = new SourceFolder(relativePath, getOutputPath(cp, sourceSetName))
-                                entry.entryAttributes.put(PROTOBUF_GENERATED_SOURCE, "true")
-                                entry.entryAttributes.put(OPTIONAL, "true")
-                                entry.entryAttributes.put(IGNORE_OPTIONAL_PROBLEMS, "true")
-
-                                // check if output is not null here because test source folder
-                                // must have a separate output folder in Eclipse
-                                if (entry.output != null && isTest(task)) {
-                                    entry.entryAttributes.put(TEST, "true")
+                                Object sourceSetObj = getSourceSet(task);
+                                if (!(sourceSetObj instanceof SourceSet)) {
+                                    continue
                                 }
-                                cp.entries.add(entry)
+                                SourceSet sourceSet = ((SourceSet) sourceSetObj)
+                                if (!exists(sourceSet)) {
+                                    continue
+                                }
+                                String sourceSetName = sourceSet.name
+
+                                Object outputSourceDirectorySet = getOutputSourceDirectorySet(task)
+                                if (!(outputSourceDirectorySet instanceof SourceDirectorySet)) {
+                                    continue;
+                                }
+                                SourceDirectorySet sourceDirectorySet = (SourceDirectorySet) outputSourceDirectorySet
+                                Set<File> srcDirs = sourceDirectorySet.getSrcDirs()
+                                for (File srcDir : srcDirs) {
+                                    // buildship requires the folder exists on disk, otherwise
+                                    // it will be ignored when updating classpath file, see:
+                                    // https://github.com/eclipse/buildship/issues/1196
+                                    srcDir.mkdirs();
+
+                                    String relativePath = projectDir.toURI().relativize(srcDir.toURI()).getPath()
+                                    // remove trailing slash
+                                    if (relativePath.endsWith("/")) {
+                                        relativePath = relativePath.substring(0, relativePath.length() - 1)
+                                    }
+
+                                    SourceFolder entry = new SourceFolder(relativePath, getOutputPath(cp, sourceSetName))
+                                    entry.entryAttributes.put(PROTOBUF_GENERATED_SOURCE, "true")
+                                    entry.entryAttributes.put(OPTIONAL, "true")
+                                    entry.entryAttributes.put(IGNORE_OPTIONAL_PROBLEMS, "true")
+
+                                    // check if output is not null here because test source folder
+                                    // must have a separate output folder in Eclipse
+                                    if (entry.output != null && isTest(task)) {
+                                        entry.entryAttributes.put(TEST, "true")
+                                    }
+                                    cp.entries.add(entry)
+                                }
                             }
+
                         }
-
                     }
                 }
             }
@@ -127,6 +139,18 @@ class ProtobufPatchPlugin implements Plugin<Project> {
         } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             return null
         }
+    }
+
+    boolean exists(SourceSet sourceSet) {
+        try {
+            for (File file : sourceSet.proto.srcDirs) {
+                if (file.exists()) {
+                    return true
+                }
+            }
+        } catch (Exception e) {
+        }
+        return false
     }
 
     /**
