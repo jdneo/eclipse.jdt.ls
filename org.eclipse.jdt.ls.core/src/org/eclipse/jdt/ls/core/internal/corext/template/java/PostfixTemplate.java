@@ -20,6 +20,7 @@ public enum PostfixTemplate {
 	CAST(PostfixPreferences.CAST_ID, JavaPostfixContextType.ID_ALL, PostfixPreferences.CAST_CONTENT, PostfixPreferences.CAST_DESCRIPTION),
 	IF(PostfixPreferences.IF_ID, JavaPostfixContextType.ID_ALL, PostfixPreferences.IF_CONTENT, PostfixPreferences.IF_DESCRIPTION),
 	ELSE(PostfixPreferences.ELSE_ID, JavaPostfixContextType.ID_ALL, PostfixPreferences.ELSE_CONTENT, PostfixPreferences.ELSE_DESCRIPTION),
+	FIELD(PostfixPreferences.FIELD_ID, JavaPostfixContextType.ID_ALL, PostfixPreferences.FIELD_CONTENT, PostfixPreferences.FIELD_DESCRIPTION),
 	FOR(PostfixPreferences.FOR_ID, JavaPostfixContextType.ID_ALL, PostfixPreferences.FOR_CONTENT, PostfixPreferences.FOR_DESCRIPTION),
 	FORI(PostfixPreferences.FORI_ID, JavaPostfixContextType.ID_ALL, PostfixPreferences.FORI_CONTENT, PostfixPreferences.FORI_DESCRIPTION),
 	FORR(PostfixPreferences.FORR_ID, JavaPostfixContextType.ID_ALL, PostfixPreferences.FORR_CONTENT, PostfixPreferences.FORR_DESCRIPTION),
@@ -56,6 +57,7 @@ class PostfixPreferences {
 	// IDs
 	public static final String CAST_ID = "org.eclipse.jdt.postfixcompletion.cast";
 	public static final String ELSE_ID = "org.eclipse.jdt.ls.postfixcompletion.else";
+	public static final String FIELD_ID = "org.eclipse.jdt.postfixcompletion.field";
 	public static final String FOR_ID = "org.eclipse.jdt.postfixcompletion.for";
 	public static final String FORI_ID = "org.eclipse.jdt.postfixcompletion.fori";
 	public static final String FORR_ID = "org.eclipse.jdt.postfixcompletion.forr";
@@ -72,6 +74,7 @@ class PostfixPreferences {
 	public static final String ELSE_CONTENT = "if (!${i:inner_expression(boolean)}) {\n" +
 		"\t$${0}\n" +
 	"}";
+	public static final String FIELD_CONTENT = "${field:newField(i)} = ${i:inner_expression};$${0}";
 	public static final String FOR_CONTENT = "for (${type:newActualType(i)} $${1:${n:newName(i)}} : ${i:inner_expression(java.util.Collection,array)}) {\n" +
 		"\t$${0}\n" +
 	"}";
@@ -100,6 +103,7 @@ class PostfixPreferences {
 	// Descriptions
 	public static final String CAST_DESCRIPTION = "Casts the expression to a new type";
 	public static final String ELSE_DESCRIPTION = "Creates a negated if statement";
+	public static final String FIELD_DESCRIPTION = "";
 	public static final String FOR_DESCRIPTION = "Creates a for statement";
 	public static final String FORI_DESCRIPTION = "Creates a for statement which iterates over an array";
 	public static final String FORR_DESCRIPTION = "Creates a for statement which iterates over an array in reverse order";

@@ -110,6 +110,10 @@ public class JavaPostfixContext extends JavaContext {
 
 	private CompletionContext completionCtx;
 
+	private Map<String, TextEdit> additionalTextEdit;
+
+	private String activeTemplateName;
+
 	public JavaPostfixContext(JavaPostfixContextType type, IDocument document, int offset, int length, ICompilationUnit compilationUnit, ASTNode currentNode, ASTNode parentNode, CompletionContext context) {
 		super(type, document, offset, length, compilationUnit);
 
@@ -119,6 +123,7 @@ public class JavaPostfixContext extends JavaContext {
 		nodeRegions.put(currentNode, calculateNodeRegion(currentNode));
 		nodeRegions.put(parentNode, calculateNodeRegion(parentNode));
 		selectedNode= findBestASTNodeSelection(currentNode);
+		additionalTextEdit = new HashMap<>();
 	}
 
 	/**
@@ -276,14 +281,29 @@ public class JavaPostfixContext extends JavaContext {
 	 * @return <code>true</code> if the method was successful, <code>false</code> otherwise
 	 */
 	public boolean applyTextEdit(TextEdit te) {
-		try {
-			te.apply(getDocument());
-			setCompletionOffset(getCompletionOffset() + ((te.getOffset() < getCompletionOffset()) ? te.getLength() : 0));
-			return true;
-		} catch (MalformedTreeException | BadLocationException e) {
-			// fall through returning false
+		if (this.activeTemplateName != null) {
+			this.additionalTextEdit.put(this.activeTemplateName, te);
 		}
-		return false;
+		return true;
+		// try {
+		// 	if (this.activeTemplateName != null) {
+		// 		this.additionalTextEdit.put(this.activeTemplateName, te);
+		// 	}
+		// 	te.apply(getDocument());
+		// 	setCompletionOffset(getCompletionOffset() + ((te.getOffset() < getCompletionOffset()) ? te.getLength() : 0));
+		// 	return true;
+		// } catch (MalformedTreeException | BadLocationException e) {
+		// 	// fall through returning false
+		// }
+		// return false;
+	}
+
+	public void setActiveTemplateName(String name) {
+		this.activeTemplateName = name;
+	}
+
+	public TextEdit getAdditionalTextEdit(String name) {
+		return this.additionalTextEdit.get(name);
 	}
 
 	private Region calculateNodeRegion(ASTNode node) {

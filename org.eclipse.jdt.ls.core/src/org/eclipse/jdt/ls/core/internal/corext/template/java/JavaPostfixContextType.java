@@ -46,6 +46,7 @@ public class JavaPostfixContextType extends AbstractJavaContextTypeCore {
 		addResolver("newActualType",  new ActualTypeResolver());
 		addResolver("newName",  new NameResolver());
 		addResolver("newType", new TypeResolver());
+		addResolver("newField", new NewFieldResolver());
 	}
 
 	public synchronized void addResolver(String type, TemplateVariableResolver resolver) {
