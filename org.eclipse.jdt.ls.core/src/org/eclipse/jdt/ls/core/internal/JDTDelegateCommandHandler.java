@@ -29,6 +29,7 @@ import org.eclipse.jdt.ls.core.internal.commands.SourceAttachmentCommand;
 import org.eclipse.jdt.ls.core.internal.commands.TypeHierarchyCommand;
 import org.eclipse.jdt.ls.core.internal.handlers.BundleUtils;
 import org.eclipse.jdt.ls.core.internal.handlers.CreateModuleInfoHandler;
+import org.eclipse.jdt.ls.core.internal.handlers.CompletionHandler;
 import org.eclipse.jdt.ls.core.internal.handlers.FormatterHandler;
 import org.eclipse.jdt.ls.core.internal.handlers.ResolveSourceMappingHandler;
 import org.eclipse.jdt.ls.core.internal.managers.GradleProjectImporter;
@@ -144,6 +145,13 @@ public class JDTDelegateCommandHandler implements IDelegateCommandHandler {
 						JavaLanguageServerPlugin.log(e);
 						return false;
 					}
+				case "java.completion.onDidSelect":
+					CompletionHandler completionHandler = new CompletionHandler(JavaLanguageServerPlugin.getPreferencesManager());
+					int elapsedTime = ((Double) arguments.get(0)).intValue();
+					String requestId = (String) arguments.get(1);
+					String proposalId = (String) arguments.get(2);
+					completionHandler.onDidCompletionItemSelect(elapsedTime, requestId, proposalId);
+					return new Object();
 				default:
 					break;
 			}

@@ -15,6 +15,7 @@ package org.eclipse.jdt.ls.core.internal.contentassist;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,11 +36,14 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.ls.core.internal.JDTUtils;
 import org.eclipse.jdt.ls.core.internal.JavaLanguageServerPlugin;
+import org.eclipse.jdt.ls.core.internal.handlers.CompletionRankingProvider;
+import org.eclipse.jdt.ls.core.internal.handlers.CompletionRankingProviderStore;
+import org.eclipse.jdt.ls.core.internal.handlers.CompletionRankingResult;
+import org.eclipse.jdt.ls.core.internal.handlers.CompletionRankingResultCombination;
 import org.eclipse.jdt.ls.core.internal.handlers.CompletionResolveHandler;
 import org.eclipse.jdt.ls.core.internal.handlers.CompletionResponse;
 import org.eclipse.jdt.ls.core.internal.handlers.CompletionResponses;
 import org.eclipse.jdt.ls.core.internal.preferences.PreferenceManager;
-import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.CompletionItemKind;
 import org.eclipse.lsp4j.CompletionItemTag;
@@ -184,11 +188,70 @@ public final class CompletionProposalRequestor extends CompletionRequestor {
 	}
 
 	public List<CompletionItem> getCompletionItems() {
-		//Sort the results by relevance 1st
+		List<CompletionRankingProvider> providers = CompletionRankingProviderStore.instance().getRankingProviders();
+		CompletionRankingResultCombination[] resultCombination = new CompletionRankingResultCombination[providers.size()];
+		if (providers != null && providers.isEmpty()) {
+			List<CompletionRankingResult[]> resultsFromProviders = new LinkedList<>();
+			for (CompletionRankingProvider provider : providers) {
+				CompletionRankingResult[] results = provider.rank(proposals, context, unit);
+				if (results != null && results.length == proposals.size()) {
+					resultsFromProviders.add(results);
+				}
+			}
+
+			for (CompletionRankingResult[] results: resultsFromProviders) {
+				for (int i = 0; i < results.length; i++) {
+					if (results[i] == null) {
+						continue;
+					}
+					if (resultCombination[i] == null) {
+						resultCombination[i] = new CompletionRankingResultCombination();
+					}
+					resultCombination[i].addScore(results[i].getScore());
+					resultCombination[i].appendDecorators(results[i].getDecorator());
+					resultCombination[i].addData(results[i].getData());
+				}
+			}
+		}
+		for (int i = 0; i < proposals.size(); i++) {
+			CompletionProposal proposal = proposals.get(i);
+			// we assume there won't be overflow for now since the the score from each provider
+			// can only be 100 at most.
+			proposal.setRelevance(proposal.getRelevance() + resultCombination[i].getScore());
+		}
+		Map<CompletionProposal, CompletionRankingResultCombination> proposalTpRankingResult = new HashMap<>();
+		for (int i = 0; i < proposals.size(); i++) {
+			proposalTpRankingResult.put(proposals.get(i), resultCombination[i]);
+		}
+
 		proposals.sort(new ProposalComparator(proposals.size()));
-		List<CompletionItem> completionItems = new ArrayList<>(proposals.size());
 		int maxCompletions = preferenceManager.getPreferences().getMaxCompletionResults();
 		int limit = Math.min(proposals.size(), maxCompletions);
+		List<CompletionItem> completionItems = new ArrayList<>(limit);
+
+		//Let's compute replacement texts for the most relevant results only
+		for (int i = 0; i < limit; i++) {
+			CompletionProposal proposal = proposals.get(i);
+			try {
+				CompletionItem item = toCompletionItem(proposal, i);
+				CompletionRankingResultCombination rankingResult = proposalTpRankingResult.get(proposal);
+				if (rankingResult != null) {
+					String decorators = rankingResult.getDecorators();
+					if (!decorators.isEmpty()) {
+						item.setLabel(decorators + " " + item.getLabel());
+					}
+					Map<String, String> itemData = (Map<String, String>) item.getData();
+					Map<String, String> rankingData = (Map<String, String>) rankingResult.getData();
+					for (String key : rankingData.keySet()) {
+						itemData.put(key, rankingData.get(key));
+					}
+				}
+				completionItems.add(item);
+			} catch (Exception e) {
+				JavaLanguageServerPlugin.logException(e.getMessage(), e);
+			}
+		}
+
 		if (proposals.size() > maxCompletions) {
 			//we keep receiving completions past our capacity so that makes the whole result incomplete
 			isComplete = false;
@@ -196,18 +259,9 @@ public final class CompletionProposalRequestor extends CompletionRequestor {
 		} else {
 			response.setProposals(proposals);
 		}
+		response.setItems(completionItems);
 		CompletionResponses.store(response);
 
-		//Let's compute replacement texts for the most relevant results only
-		for (int i = 0; i < limit; i++) {
-			CompletionProposal proposal = proposals.get(i);
-			try {
-				CompletionItem item = toCompletionItem(proposal, i);
-				completionItems.add(item);
-			} catch (Exception e) {
-				JavaLanguageServerPlugin.logException(e.getMessage(), e);
-			}
-		}
 		return completionItems;
 	}
 
@@ -238,12 +292,6 @@ public final class CompletionProposalRequestor extends CompletionRequestor {
 			Range range = $.getTextEdit().isLeft() ? $.getTextEdit().getLeft().getRange() : ($.getTextEdit().getRight().getInsert() != null ? $.getTextEdit().getRight().getInsert() : $.getTextEdit().getRight().getReplace());
 			if (proposal.getKind() == CompletionProposal.TYPE_REF && range != null && newText != null) {
 				$.setFilterText(newText);
-			}
-		}
-		if (preferenceManager.getPreferences().isSignatureHelpEnabled()) {
-			String onSelectedCommand = preferenceManager.getClientPreferences().getCompletionItemCommand();
-			if (!onSelectedCommand.isEmpty()) {
-				$.setCommand(new Command("Command triggered for completion", onSelectedCommand));
 			}
 		}
 		return $;
