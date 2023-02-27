@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,10 +49,14 @@ import org.eclipse.buildship.core.internal.CorePlugin;
 import org.eclipse.buildship.core.internal.DefaultGradleBuild;
 import org.eclipse.buildship.core.internal.preferences.PersistentModel;
 import org.eclipse.buildship.core.internal.util.gradle.GradleVersion;
+import org.eclipse.buildship.core.internal.workspace.EclipseVmUtil;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IMarker;
 import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.IProjectDescription;
 import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.IWorkspace;
+import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -61,10 +66,15 @@ import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.SubMonitor;
 import org.eclipse.core.runtime.URIUtil;
 import org.eclipse.debug.core.ILaunchManager;
+import org.eclipse.jdt.core.IClasspathAttribute;
+import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.internal.core.ClasspathEntry;
 import org.eclipse.jdt.internal.launching.StandardVMType;
 import org.eclipse.jdt.launching.IVMInstall;
 import org.eclipse.jdt.launching.JavaRuntime;
+import org.eclipse.jdt.launching.environments.IExecutionEnvironment;
 import org.eclipse.jdt.ls.core.internal.AbstractProjectImporter;
 import org.eclipse.jdt.ls.core.internal.EventNotification;
 import org.eclipse.jdt.ls.core.internal.EventType;
@@ -83,6 +93,17 @@ import org.eclipse.lsp4j.MessageParams;
 import org.eclipse.lsp4j.MessageType;
 import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.build.GradleEnvironment;
+
+import ch.epfl.scala.bsp4j.BuildServer;
+import ch.epfl.scala.bsp4j.BuildTarget;
+import ch.epfl.scala.bsp4j.BuildTargetIdentifier;
+import ch.epfl.scala.bsp4j.CompileParams;
+import ch.epfl.scala.bsp4j.CompileResult;
+import ch.epfl.scala.bsp4j.ResourcesParams;
+import ch.epfl.scala.bsp4j.ResourcesResult;
+import ch.epfl.scala.bsp4j.SourcesParams;
+import ch.epfl.scala.bsp4j.SourcesResult;
+import ch.epfl.scala.bsp4j.WorkspaceBuildTargetsResult;
 
 /**
  * @author Fred Bricon
@@ -196,98 +217,232 @@ public class GradleProjectImporter extends AbstractProjectImporter {
 	 */
 	@Override
 	public void importToWorkspace(IProgressMonitor monitor) throws CoreException {
-		if (!applies(monitor)) {
+		BuildServer buildServer;
+		try {
+			buildServer = JavaLanguageServerPlugin.getBuildServer();
+		} catch (IOException e) {
+			e.printStackTrace();
 			return;
 		}
-		int projectSize = directories.size();
-		SubMonitor subMonitor = SubMonitor.convert(monitor, projectSize + 1);
-		subMonitor.setTaskName(IMPORTING_GRADLE_PROJECTS);
-		JavaLanguageServerPlugin.logInfo(IMPORTING_GRADLE_PROJECTS);
-		subMonitor.worked(1);
-		MultiStatus compatibilityStatus = new MultiStatus(IConstants.PLUGIN_ID, -1, "Compatibility issue occurs when importing Gradle projects", null);
-		MultiStatus gradleUpgradeWrapperStatus = new MultiStatus(IConstants.PLUGIN_ID, -1, "Gradle upgrade wrapper", null);
-		for (Path directory : directories) {
-			IStatus importStatus = importDir(directory, subMonitor.newChild(1));
-			if (isFailedStatus(importStatus) && importStatus instanceof GradleCompatibilityStatus) {
-				compatibilityStatus.add(importStatus);
-			} else if (GradleUtils.hasGradleInvalidTypeCodeException(importStatus, directory, monitor)) {
-				gradleUpgradeWrapperStatus.add(new GradleUpgradeWrapperStatus(importStatus, GRADLE_INVALID_TYPE_CODE_MESSAGE, directory.toUri().toString()));
-			}
+		WorkspaceBuildTargetsResult workspaceBuildTargetsResult = buildServer.workspaceBuildTargets().join();
+		List<BuildTarget> buildTargets = workspaceBuildTargetsResult.getTargets();
+		// TODO: have to compile first because the output path will change when a client connected to the server
+		List<BuildTargetIdentifier> ids = workspaceBuildTargetsResult.getTargets().stream().map(t -> t.getId()).collect(Collectors.toList());
+		CompileResult compileResult = buildServer.buildTargetCompile(new CompileParams(ids)).join();
+
+		File projectDirectory;
+		try {
+			// TODO: how to get the project directory?
+			URI uri = new URI(buildTargets.get(0).getId().getUri());
+			URI normalizedUri = new URI(uri.getScheme(),
+				uri.getAuthority(),
+				uri.getPath(),
+				null, // Ignore the query part of the input url
+				uri.getFragment());
+			projectDirectory = new File(normalizedUri);
+		} catch (URISyntaxException e) {
+			e.printStackTrace();
+			return;
 		}
-		// store the digest for the imported gradle projects.
-		ProjectUtils.getGradleProjects().forEach(project -> {
-			File buildFile = project.getFile(BUILD_GRADLE_DESCRIPTOR).getLocation().toFile();
-			File settingsFile = project.getFile(SETTINGS_GRADLE_DESCRIPTOR).getLocation().toFile();
-			File buildKtsFile = project.getFile(BUILD_GRADLE_KTS_DESCRIPTOR).getLocation().toFile();
-			File settingsKtsFile = project.getFile(SETTINGS_GRADLE_KTS_DESCRIPTOR).getLocation().toFile();
-			try {
-				if (buildFile.exists()) {
-					JavaLanguageServerPlugin.getDigestStore().updateDigest(buildFile.toPath());
-				} else if (buildKtsFile.exists()) {
-					JavaLanguageServerPlugin.getDigestStore().updateDigest(buildKtsFile.toPath());
-				}
-				if (settingsFile.exists()) {
-					JavaLanguageServerPlugin.getDigestStore().updateDigest(settingsFile.toPath());
-				} else if (settingsKtsFile.exists()) {
-					JavaLanguageServerPlugin.getDigestStore().updateDigest(settingsKtsFile.toPath());
-				}
-			} catch (CoreException e) {
-				JavaLanguageServerPlugin.logException("Failed to update digest for gradle build file", e);
-			}
-		});
-		for (IProject gradleProject : ProjectUtils.getGradleProjects()) {
-			gradleProject.deleteMarkers(COMPATIBILITY_MARKER_ID, true, IResource.DEPTH_ZERO);
-			gradleProject.deleteMarkers(GRADLE_UPGRADE_WRAPPER_MARKER_ID, true, IResource.DEPTH_INFINITE);
-		}
-		for (IStatus status : compatibilityStatus.getChildren()) {
-			// only report first compatibility issue
-			GradleCompatibilityStatus gradleStatus = ((GradleCompatibilityStatus) status);
-			for (IProject gradleProject : ProjectUtils.getGradleProjects()) {
-				if (URIUtil.sameURI(URI.create(JDTUtils.getFileURI(gradleProject)), URI.create(gradleStatus.getProjectUri()))) {
-					ResourceUtils.createErrorMarker(gradleProject, gradleStatus, COMPATIBILITY_MARKER_ID);
-				}
-			}
-			if (JavaLanguageServerPlugin.getProjectsManager() != null && JavaLanguageServerPlugin.getProjectsManager().getConnection() != null) {
-				GradleCompatibilityInfo info = new GradleCompatibilityInfo(gradleStatus.getProjectUri(), gradleStatus.getMessage(), gradleStatus.getHighestJavaVersion(), GradleVersion.current().getVersion());
-				EventNotification notification = new EventNotification().withType(EventType.IncompatibleGradleJdkIssue).withData(info);
-				JavaLanguageServerPlugin.getProjectsManager().getConnection().sendEventNotification(notification);
-			}
-			break;
-		}
-		for (IStatus status : gradleUpgradeWrapperStatus.getChildren()) {
-			// only report first marker
-			GradleUpgradeWrapperStatus gradleStatus = ((GradleUpgradeWrapperStatus) status);
-			for (IProject gradleProject : ProjectUtils.getGradleProjects()) {
-				if (!URIUtil.sameURI(URI.create(JDTUtils.getFileURI(gradleProject)), URI.create(gradleStatus.getProjectUri()))) {
-					continue;
-				}
-				IFile wrapperProperties = gradleProject.getFile(GRADLE_WRAPPER_PROPERTIES_DESCRIPTOR);
-				if (!wrapperProperties.exists()) {
-					continue;
-				}
-				try (LineNumberReader reader = new LineNumberReader(new InputStreamReader(wrapperProperties.getContents()))){
-					String line;
-					while ((line = reader.readLine()) != null) {
-						if (line.contains("distributionUrl")) {
-							IMarker marker = ResourceUtils.createWarningMarker(GRADLE_UPGRADE_WRAPPER_MARKER_ID, wrapperProperties, GRADLE_INVALID_TYPE_CODE_MESSAGE, INVALID_TYPE_CODE_ID, reader.getLineNumber());
-							marker.setAttribute(GRADLE_MARKER_COLUMN_START, 0);
-							marker.setAttribute(GRADLE_MARKER_COLUMN_END, line.length());
-							UpgradeGradleWrapperInfo info = new UpgradeGradleWrapperInfo(gradleStatus.getProjectUri(), GRADLE_INVALID_TYPE_CODE_MESSAGE, GradleVersion.current().getVersion());
-							EventNotification notification = new EventNotification().withType(EventType.UpgradeGradleWrapper).withData(info);
-							JavaLanguageServerPlugin.getProjectsManager().getConnection().sendEventNotification(notification);
-							break;
-						}
-					}
-				} catch (IOException e) {
-					// Do nothing
-				}
-			}
-			break;
+		IProject[] allProjects = ProjectUtils.getAllProjects();
+		Optional<IProject> projectOrNull = Arrays.stream(allProjects).filter(p -> {
+			File loc = p.getLocation().toFile();
+			return loc.equals(projectDirectory);
+		}).findFirst();
+
+		IProject project;
+		if (projectOrNull.isPresent()) {
+			project = projectOrNull.get();
+		} else {
+            String projectName = projectDirectory.getName();
+			IWorkspace workspace = ResourcesPlugin.getWorkspace();
+			IProjectDescription projectDescription = workspace.newProjectDescription(projectName);
+			projectDescription.setLocation(org.eclipse.core.runtime.Path.fromOSString(projectDirectory.getPath()));
+			projectDescription.setNatureIds(new String[]{JavaCore.NATURE_ID});
+			project = workspace.getRoot().getProject(projectName);
+            project.create(projectDescription, monitor);
+
+            // open the project
+            project.open(IResource.NONE, monitor);
+
+			// TODO: add gradle nature?
+        }
+
+		if (project == null || !project.isAccessible()) {
+			return;
 		}
 
-		GradleUtils.synchronizeAnnotationProcessingConfiguration(subMonitor);
+		project.refreshLocal(IResource.DEPTH_INFINITE, monitor);
+		IJavaProject javaProject = JavaCore.create(project);
+		List<IClasspathEntry> classpath = new LinkedList<>();
+		IClasspathAttribute[] testAttribute = new IClasspathAttribute[]{JavaCore.newClasspathAttribute("test", "true")};
+		for (BuildTarget buildTarget : buildTargets) {
+			SourcesResult sourcesResult = buildServer.buildTargetSources(new SourcesParams(Arrays.asList(buildTarget.getId()))).join();
+			boolean isTest = buildTarget.getTags().contains("test");
+			// TODO: may have multiple sources
+			IPath sourcePath = ResourceUtils.filePathFromURI(sourcesResult.getItems().get(0).getSources().get(0).getUri());
+			IPath relativeSourcePath = sourcePath.makeRelativeTo(project.getLocation());
+			IPath sourceFullPath = project.getFolder(relativeSourcePath).getFullPath();
+			IPath outputPath;
+			if (isTest) {
+				IPath outputParentPath = new org.eclipse.core.runtime.Path(".bloop/mapstruct-gradle-test/build/bloop-internal-classes");
+				outputPath = outputParentPath.append(project.getFolder(outputParentPath).getLocation().toFile().listFiles()[0].getName());
+			} else {
+				IPath outputParentPath = new org.eclipse.core.runtime.Path(".bloop/mapstruct-gradle/build/bloop-internal-classes");
+				outputPath = outputParentPath.append(project.getFolder(outputParentPath).getLocation().toFile().listFiles()[0].getName());
+			}
+			classpath.add(JavaCore.newSourceEntry(sourceFullPath, null, null, outputPath, isTest ? testAttribute : null));
 
-		subMonitor.done();
+			ResourcesResult resourceResult = buildServer.buildTargetResources(new ResourcesParams(Arrays.asList(buildTarget.getId()))).join();
+			IPath resourcePath = ResourceUtils.filePathFromURI(resourceResult.getItems().get(0).getResources().get(0));
+			IPath relativeResourcePath = resourcePath.makeRelativeTo(project.getLocation());
+			IPath resourceFullPath = project.getFolder(relativeResourcePath).getFullPath();
+			classpath.add(JavaCore.newSourceEntry(resourceFullPath, null, null, outputPath, isTest ? testAttribute : null));
+		}
+
+		com.google.common.base.Optional<IExecutionEnvironment> executionEnvironment = EclipseVmUtil.findExecutionEnvironment("17");
+		classpath.add(JavaCore.newContainerEntry(JavaRuntime.newJREContainerPath(executionEnvironment.get())));
+		classpath.add(JavaCore.newLibraryEntry(
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.mapstruct\\mapstruct\\1.5.3.Final\\5f5d063858957ef086858bc3d003f702082297f3\\mapstruct-1.5.3.Final.jar"),
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.mapstruct\\mapstruct\\1.5.3.Final\\6c581ca3d8098854fc411dd197d43b49eb246461\\mapstruct-1.5.3.Final-sources.jar"),
+			null,
+			ClasspathEntry.NO_ACCESS_RULES,
+			ClasspathEntry.NO_EXTRA_ATTRIBUTES,
+			false
+		));
+		classpath.add(JavaCore.newLibraryEntry(
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.mapstruct\\mapstruct-processor\\1.5.3.Final\\dce418bedafd71ff8dd2cef15006c0fee788b073\\mapstruct-processor-1.5.3.Final.jar"),
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.mapstruct\\mapstruct-processor\\1.5.3.Final\\688c37f52d917b63b9ad85cbf550bb923b4ccee9\\mapstruct-processor-1.5.3.Final-sources.jar"),
+			null,
+			ClasspathEntry.NO_ACCESS_RULES,
+			ClasspathEntry.NO_EXTRA_ATTRIBUTES,
+			false
+		));
+		classpath.add(JavaCore.newLibraryEntry(
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\com.beust\\jcommander\\1.48\\bfcb96281ea3b59d626704f74bc6d625ff51cbce\\jcommander-1.48.jar"),
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\com.beust\\jcommander\\1.48\\6deefcf90f144dfca29d4950c665a592ba029d42\\jcommander-1.48-sources.jar"),
+			null,
+			ClasspathEntry.NO_ACCESS_RULES,
+			testAttribute,
+			false
+		));
+		classpath.add(JavaCore.newLibraryEntry(
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.easytesting\\fest-assert\\1.4\\88ec2d3bbc35a2e9613f584b29e26adb1bc2c515\\fest-assert-1.4.jar"),
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.easytesting\\fest-assert\\1.4\\c4f4f784a5b3fd0bbb519ca5b109066b11cbb390\\fest-assert-1.4-sources.jar"),
+			null,
+			ClasspathEntry.NO_ACCESS_RULES,
+			testAttribute,
+			false
+		));
+		classpath.add(JavaCore.newLibraryEntry(
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.testng\\testng\\6.10\\368d38d0f6906934b572e1a26441b6f47c58b134\\testng-6.10.jar"),
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.testng\\testng\\6.10\\fa7502ae129b9073f57cfdf7a25f11c9b0270fae\\testng-6.10-sources.jar"),
+			null,
+			ClasspathEntry.NO_ACCESS_RULES,
+			testAttribute,
+			false
+		));
+		classpath.add(JavaCore.newLibraryEntry(
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.easytesting\\fest-util\\1.1.6\\e785ee9c1f314bbf9e5a824b85143e440642557a\\fest-util-1.1.6.jar"),
+			new org.eclipse.core.runtime.Path("C:\\Users\\sheche\\.gradle\\caches\\modules-2\\files-2.1\\org.easytesting\\fest-util\\1.1.6\\3494b4ee34ac42be816e155a9e2897a88fcedea6\\fest-util-1.1.6-sources.jar"),
+			null,
+			ClasspathEntry.NO_ACCESS_RULES,
+			testAttribute,
+			false
+		));
+		System.out.println();
+		// if (!applies(monitor)) {
+		// 	return;
+		// }
+		// int projectSize = directories.size();
+		// SubMonitor subMonitor = SubMonitor.convert(monitor, projectSize + 1);
+		// subMonitor.setTaskName(IMPORTING_GRADLE_PROJECTS);
+		// JavaLanguageServerPlugin.logInfo(IMPORTING_GRADLE_PROJECTS);
+		// subMonitor.worked(1);
+		// MultiStatus compatibilityStatus = new MultiStatus(IConstants.PLUGIN_ID, -1, "Compatibility issue occurs when importing Gradle projects", null);
+		// MultiStatus gradleUpgradeWrapperStatus = new MultiStatus(IConstants.PLUGIN_ID, -1, "Gradle upgrade wrapper", null);
+		// for (Path directory : directories) {
+		// 	IStatus importStatus = importDir(directory, subMonitor.newChild(1));
+		// 	if (isFailedStatus(importStatus) && importStatus instanceof GradleCompatibilityStatus) {
+		// 		compatibilityStatus.add(importStatus);
+		// 	} else if (GradleUtils.hasGradleInvalidTypeCodeException(importStatus, directory, monitor)) {
+		// 		gradleUpgradeWrapperStatus.add(new GradleUpgradeWrapperStatus(importStatus, GRADLE_INVALID_TYPE_CODE_MESSAGE, directory.toUri().toString()));
+		// 	}
+		// }
+		// // store the digest for the imported gradle projects.
+		// ProjectUtils.getGradleProjects().forEach(project -> {
+		// 	File buildFile = project.getFile(BUILD_GRADLE_DESCRIPTOR).getLocation().toFile();
+		// 	File settingsFile = project.getFile(SETTINGS_GRADLE_DESCRIPTOR).getLocation().toFile();
+		// 	File buildKtsFile = project.getFile(BUILD_GRADLE_KTS_DESCRIPTOR).getLocation().toFile();
+		// 	File settingsKtsFile = project.getFile(SETTINGS_GRADLE_KTS_DESCRIPTOR).getLocation().toFile();
+		// 	try {
+		// 		if (buildFile.exists()) {
+		// 			JavaLanguageServerPlugin.getDigestStore().updateDigest(buildFile.toPath());
+		// 		} else if (buildKtsFile.exists()) {
+		// 			JavaLanguageServerPlugin.getDigestStore().updateDigest(buildKtsFile.toPath());
+		// 		}
+		// 		if (settingsFile.exists()) {
+		// 			JavaLanguageServerPlugin.getDigestStore().updateDigest(settingsFile.toPath());
+		// 		} else if (settingsKtsFile.exists()) {
+		// 			JavaLanguageServerPlugin.getDigestStore().updateDigest(settingsKtsFile.toPath());
+		// 		}
+		// 	} catch (CoreException e) {
+		// 		JavaLanguageServerPlugin.logException("Failed to update digest for gradle build file", e);
+		// 	}
+		// });
+		// for (IProject gradleProject : ProjectUtils.getGradleProjects()) {
+		// 	gradleProject.deleteMarkers(COMPATIBILITY_MARKER_ID, true, IResource.DEPTH_ZERO);
+		// 	gradleProject.deleteMarkers(GRADLE_UPGRADE_WRAPPER_MARKER_ID, true, IResource.DEPTH_INFINITE);
+		// }
+		// for (IStatus status : compatibilityStatus.getChildren()) {
+		// 	// only report first compatibility issue
+		// 	GradleCompatibilityStatus gradleStatus = ((GradleCompatibilityStatus) status);
+		// 	for (IProject gradleProject : ProjectUtils.getGradleProjects()) {
+		// 		if (URIUtil.sameURI(URI.create(JDTUtils.getFileURI(gradleProject)), URI.create(gradleStatus.getProjectUri()))) {
+		// 			ResourceUtils.createErrorMarker(gradleProject, gradleStatus, COMPATIBILITY_MARKER_ID);
+		// 		}
+		// 	}
+		// 	if (JavaLanguageServerPlugin.getProjectsManager() != null && JavaLanguageServerPlugin.getProjectsManager().getConnection() != null) {
+		// 		GradleCompatibilityInfo info = new GradleCompatibilityInfo(gradleStatus.getProjectUri(), gradleStatus.getMessage(), gradleStatus.getHighestJavaVersion(), GradleVersion.current().getVersion());
+		// 		EventNotification notification = new EventNotification().withType(EventType.IncompatibleGradleJdkIssue).withData(info);
+		// 		JavaLanguageServerPlugin.getProjectsManager().getConnection().sendEventNotification(notification);
+		// 	}
+		// 	break;
+		// }
+		// for (IStatus status : gradleUpgradeWrapperStatus.getChildren()) {
+		// 	// only report first marker
+		// 	GradleUpgradeWrapperStatus gradleStatus = ((GradleUpgradeWrapperStatus) status);
+		// 	for (IProject gradleProject : ProjectUtils.getGradleProjects()) {
+		// 		if (!URIUtil.sameURI(URI.create(JDTUtils.getFileURI(gradleProject)), URI.create(gradleStatus.getProjectUri()))) {
+		// 			continue;
+		// 		}
+		// 		IFile wrapperProperties = gradleProject.getFile(GRADLE_WRAPPER_PROPERTIES_DESCRIPTOR);
+		// 		if (!wrapperProperties.exists()) {
+		// 			continue;
+		// 		}
+		// 		try (LineNumberReader reader = new LineNumberReader(new InputStreamReader(wrapperProperties.getContents()))){
+		// 			String line;
+		// 			while ((line = reader.readLine()) != null) {
+		// 				if (line.contains("distributionUrl")) {
+		// 					IMarker marker = ResourceUtils.createWarningMarker(GRADLE_UPGRADE_WRAPPER_MARKER_ID, wrapperProperties, GRADLE_INVALID_TYPE_CODE_MESSAGE, INVALID_TYPE_CODE_ID, reader.getLineNumber());
+		// 					marker.setAttribute(GRADLE_MARKER_COLUMN_START, 0);
+		// 					marker.setAttribute(GRADLE_MARKER_COLUMN_END, line.length());
+		// 					UpgradeGradleWrapperInfo info = new UpgradeGradleWrapperInfo(gradleStatus.getProjectUri(), GRADLE_INVALID_TYPE_CODE_MESSAGE, GradleVersion.current().getVersion());
+		// 					EventNotification notification = new EventNotification().withType(EventType.UpgradeGradleWrapper).withData(info);
+		// 					JavaLanguageServerPlugin.getProjectsManager().getConnection().sendEventNotification(notification);
+		// 					break;
+		// 				}
+		// 			}
+		// 		} catch (IOException e) {
+		// 			// Do nothing
+		// 		}
+		// 	}
+		// 	break;
+		// }
+
+		// GradleUtils.synchronizeAnnotationProcessingConfiguration(subMonitor);
+
+		// subMonitor.done();
 	}
 
 	private IStatus importDir(Path projectFolder, IProgressMonitor monitor) {

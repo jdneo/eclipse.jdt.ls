@@ -4,6 +4,9 @@
 	<classpathentry kind="con" path="org.eclipse.pde.core.requiredPlugins"/>
 	<classpathentry exported="true" kind="lib" path="lib/jsoup-1.14.2.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/remark-1.2.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/bloop-launcher_2.13-1.5.6.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/bsp4j-2.1.0-M3.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/scala-library-2.13.10.jar"/>
 	<classpathentry kind="src" path="src/"/>
 	<classpathentry kind="output" path="target/classes"/>
 </classpath>
