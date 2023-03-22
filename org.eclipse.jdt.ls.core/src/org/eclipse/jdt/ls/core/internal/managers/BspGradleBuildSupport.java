@@ -48,6 +48,7 @@ import org.eclipse.jdt.ls.core.internal.managers.ProjectsManager.CHANGE_TYPE;
 import ch.epfl.scala.bsp4j.BuildServer;
 import ch.epfl.scala.bsp4j.BuildTarget;
 import ch.epfl.scala.bsp4j.BuildTargetIdentifier;
+import ch.epfl.scala.bsp4j.BuildTargetTag;
 import ch.epfl.scala.bsp4j.DependencyModule;
 import ch.epfl.scala.bsp4j.DependencyModulesParams;
 import ch.epfl.scala.bsp4j.DependencyModulesResult;
@@ -142,7 +143,7 @@ public class BspGradleBuildSupport implements IBuildSupport {
 		List<BuildTarget> buildTargets = BuildTargetsManager.getInstance().getBuildTargets(project);
 		Set<BuildTargetIdentifier> projectDependencies = new HashSet<>();
 		for (BuildTarget buildTarget : buildTargets) {
-			boolean isTest = buildTarget.getTags().contains("test");
+			boolean isTest = buildTarget.getTags().contains(BuildTargetTag.TEST);
 
 			OutputPathsResult outputResult = buildServer.buildTargetOutputPaths(new OutputPathsParams(Arrays.asList(buildTarget.getId()))).join();
 			List<OutputPathItem> outputPaths = outputResult.getItems().get(0).getOutputPaths();

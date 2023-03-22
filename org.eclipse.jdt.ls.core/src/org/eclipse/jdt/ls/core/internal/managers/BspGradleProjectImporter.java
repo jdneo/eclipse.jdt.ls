@@ -193,6 +193,7 @@ public class BspGradleProjectImporter extends AbstractProjectImporter {
 				IWorkspace workspace = ResourcesPlugin.getWorkspace();
 				IProjectDescription projectDescription = workspace.newProjectDescription(projectName);
 				projectDescription.setLocation(org.eclipse.core.runtime.Path.fromOSString(projectDirectory.getPath()));
+				// TODO: check how buildship assigns the java nature.
 				projectDescription.setNatureIds(new String[]{JavaCore.NATURE_ID, BspGradleProjectNature.NATURE_ID});
 				ICommand buildSpec = projectDescription.newCommand();
 				buildSpec.setBuilderName("org.eclipse.jdt.ls.core.internal.builder.bspBuilder");
