@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -102,7 +103,26 @@ public class BspGradleBuildSupport implements IBuildSupport {
 			buildServer.workspaceReload().join();
 			WorkspaceBuildTargetsResult workspaceBuildTargetsResult = buildServer.workspaceBuildTargets().join();
 			List<BuildTarget> buildTargets = workspaceBuildTargetsResult.getTargets();
-			BuildTargetsManager.getInstance().setBuildTargets(project, buildTargets);
+			Map<String, List<BuildTarget>> buildTargetMap = BspUtils.mapBuildTargetsByBaseDir(buildTargets);
+			for (String baseDir : buildTargetMap.keySet()) {
+				if (baseDir == null) {
+					JavaLanguageServerPlugin.logError("The base directory of the build target is null.");
+					continue;
+				}
+				List<BuildTarget> targets = buildTargetMap.get(baseDir);
+				if (targets == null || targets.isEmpty()) {
+					continue;
+				}
+				URI Uri = null;
+				try {
+					Uri = new URI(baseDir);
+				} catch (URISyntaxException e) {
+					JavaLanguageServerPlugin.logException(e);
+					continue;
+				}
+				IProject prj = ProjectUtils.getProjectFromUri(Uri.toString());
+				BuildTargetsManager.getInstance().setBuildTargets(prj, targets);
+			}
 			updateClassPath(project, monitor);
 		}
 	}
@@ -134,7 +154,7 @@ public class BspGradleBuildSupport implements IBuildSupport {
 			SourcesResult sourcesResult = buildServer.buildTargetSources(new SourcesParams(Arrays.asList(buildTarget.getId()))).join();
 			for (SourceItem source : sourcesResult.getItems().get(0).getSources()) {
 				IPath sourcePath = ResourceUtils.filePathFromURI(source.getUri());
-				if (!sourcePath.toFile().exists()) {
+				if (!sourcePath.toFile().exists() && !source.getGenerated()) {
 					continue;
 				}
 				IPath relativeSourcePath = sourcePath.makeRelativeTo(project.getLocation());

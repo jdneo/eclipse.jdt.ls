@@ -166,7 +166,7 @@ public class BspGradleProjectImporter extends AbstractProjectImporter {
 
 	private List<IProject> createProjectsIfNotExist(List<BuildTarget> buildTargets, IProgressMonitor monitor) throws CoreException {
 		List<IProject> projects = new LinkedList<>();
-		Map<String, List<BuildTarget>> buildTargetMap = mapBuildTargetsByBaseDir(buildTargets);
+		Map<String, List<BuildTarget>> buildTargetMap = BspUtils.mapBuildTargetsByBaseDir(buildTargets);
 		for (String baseDir : buildTargetMap.keySet()) {
 			if (baseDir == null) {
 				JavaLanguageServerPlugin.logError("The base directory of the build target is null.");
@@ -217,11 +217,6 @@ public class BspGradleProjectImporter extends AbstractProjectImporter {
 		}
 		
 		return projects;
-	}
-
-	Map<String, List<BuildTarget>> mapBuildTargetsByBaseDir(List<BuildTarget> buildTargets) {
-		// we assume all build targets will have a non-null base directory.
-		return buildTargets.stream().collect(Collectors.groupingBy(BuildTarget::getBaseDirectory));
 	}
 
 	@Override
