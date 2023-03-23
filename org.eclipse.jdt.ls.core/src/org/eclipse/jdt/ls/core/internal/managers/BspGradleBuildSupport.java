@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -50,6 +51,7 @@ import ch.epfl.scala.bsp4j.BuildTarget;
 import ch.epfl.scala.bsp4j.BuildTargetIdentifier;
 import ch.epfl.scala.bsp4j.BuildTargetTag;
 import ch.epfl.scala.bsp4j.DependencyModule;
+import ch.epfl.scala.bsp4j.DependencyModulesItem;
 import ch.epfl.scala.bsp4j.DependencyModulesParams;
 import ch.epfl.scala.bsp4j.DependencyModulesResult;
 import ch.epfl.scala.bsp4j.MavenDependencyModule;
@@ -57,9 +59,11 @@ import ch.epfl.scala.bsp4j.MavenDependencyModuleArtifact;
 import ch.epfl.scala.bsp4j.OutputPathItem;
 import ch.epfl.scala.bsp4j.OutputPathsParams;
 import ch.epfl.scala.bsp4j.OutputPathsResult;
+import ch.epfl.scala.bsp4j.ResourcesItem;
 import ch.epfl.scala.bsp4j.ResourcesParams;
 import ch.epfl.scala.bsp4j.ResourcesResult;
 import ch.epfl.scala.bsp4j.SourceItem;
+import ch.epfl.scala.bsp4j.SourcesItem;
 import ch.epfl.scala.bsp4j.SourcesParams;
 import ch.epfl.scala.bsp4j.SourcesResult;
 import ch.epfl.scala.bsp4j.WorkspaceBuildTargetsResult;
@@ -128,7 +132,7 @@ public class BspGradleBuildSupport implements IBuildSupport {
 		}
 	}
 
-	public void updateClassPath(IProject project, IProgressMonitor monitor) throws JavaModelException {
+	public void updateClassPath(IProject project, IProgressMonitor monitor) throws CoreException {
 		BuildServer buildServer = JavaLanguageServerPlugin.getBuildServer();
 		if (buildServer == null) {
 			return;
@@ -149,12 +153,20 @@ public class BspGradleBuildSupport implements IBuildSupport {
 			List<OutputPathItem> outputPaths = outputResult.getItems().get(0).getOutputPaths();
 			String sourceOutputUriString = outputPaths.get(0).getUri();
 			IPath sourceOutputPath = ResourceUtils.filePathFromURI(sourceOutputUriString);
+			File outputDirectory = sourceOutputPath.toFile();
+			if (!outputDirectory.exists()) {
+				outputDirectory.mkdirs();
+			}
 			IPath relativeSourceOutputPath = sourceOutputPath.makeRelativeTo(project.getLocation());
 			IPath sourceOutputFullPath = project.getFolder(relativeSourceOutputPath).getFullPath();
 
 			SourcesResult sourcesResult = buildServer.buildTargetSources(new SourcesParams(Arrays.asList(buildTarget.getId()))).join();
-			for (SourceItem source : sourcesResult.getItems().get(0).getSources()) {
-				IPath sourcePath = ResourceUtils.filePathFromURI(source.getUri());
+			for (SourcesItem item : sourcesResult.getItems()) {
+				if (!Objects.equals(buildTarget.getId(), item.getTarget())) {
+					continue;
+				}
+				for (SourceItem source : item.getSources()) {
+					IPath sourcePath = ResourceUtils.filePathFromURI(source.getUri());
 				if (!sourcePath.toFile().exists() && !source.getGenerated()) {
 					continue;
 				}
@@ -168,18 +180,29 @@ public class BspGradleBuildSupport implements IBuildSupport {
 					classpathAttributes.add(optionalAttribute);
 				}
 				classpath.add(JavaCore.newSourceEntry(sourceFullPath, null, null, sourceOutputFullPath, classpathAttributes.toArray(new IClasspathAttribute[0])));
+				}
 			}
 
 			if (outputPaths.size() > 1) {
+				// TODO: should iterate over all items
 				// handle resource output
 				String resourceOutputUriString = outputResult.getItems().get(0).getOutputPaths().get(1).getUri();
 				IPath resourceOutputPath = ResourceUtils.filePathFromURI(resourceOutputUriString);
+				File resourceOutputDirectory = resourceOutputPath.toFile();
+				if (!resourceOutputDirectory.exists()) {
+					resourceOutputDirectory.mkdirs();
+				}
 				IPath relativeResourceOutputPath = resourceOutputPath.makeRelativeTo(project.getLocation());
 				IPath resourceOutputFullPath = project.getFolder(relativeResourceOutputPath).getFullPath();
 
 				ResourcesResult resourcesResult = buildServer.buildTargetResources(new ResourcesParams(Arrays.asList(buildTarget.getId()))).join();
-				for (String resourceUri : resourcesResult.getItems().get(0).getResources()) {
-					IPath resourcePath = ResourceUtils.filePathFromURI(resourceUri);
+				for (ResourcesItem item : resourcesResult.getItems()) {
+					if (!Objects.equals(buildTarget.getId(), item.getTarget())) {
+						continue;
+					}
+
+					for (String resourceUri : item.getResources()) {
+						IPath resourcePath = ResourceUtils.filePathFromURI(resourceUri);
 					if (!resourcePath.toFile().exists()) {
 						continue;
 					}
@@ -191,16 +214,22 @@ public class BspGradleBuildSupport implements IBuildSupport {
 					}
 					classpathAttributes.add(optionalAttribute);
 					classpath.add(JavaCore.newSourceEntry(resourceFullPath, null, null, resourceOutputFullPath, classpathAttributes.toArray(new IClasspathAttribute[0])));
+					}
 				}
 			}
 
 			DependencyModulesResult dependencyModuleResult = buildServer.buildTargetDependencyModules(new DependencyModulesParams(Arrays.asList(buildTarget.getId()))).join();
-			for (DependencyModule module : dependencyModuleResult.getItems().get(0).getModules()) {
-				MavenDependencyModule mavenModule = JSONUtility.toModel(module.getData(), MavenDependencyModule.class);
-				if (isTest) {
-					testDependencies.add(mavenModule);
-				} else {
-					mainDependencies.add(mavenModule);
+			for (DependencyModulesItem item : dependencyModuleResult.getItems()) {
+				if (!Objects.equals(buildTarget.getId(), item.getTarget())) {
+					continue;
+				}
+				for (DependencyModule module : item.getModules()) {
+					MavenDependencyModule mavenModule = JSONUtility.toModel(module.getData(), MavenDependencyModule.class);
+					if (isTest) {
+						testDependencies.add(mavenModule);
+					} else {
+						mainDependencies.add(mavenModule);
+					}
 				}
 			}
 
@@ -221,6 +250,8 @@ public class BspGradleBuildSupport implements IBuildSupport {
 		addModeDependenciesToClasspath(classpath, testDependencies, true);
 
 		javaProject.setRawClasspath(classpath.toArray(IClasspathEntry[]::new), javaProject.getOutputLocation(), monitor);
+		// refresh to let JDT be aware of the output folders.
+		project.refreshLocal(IResource.DEPTH_INFINITE, monitor);
 	}
 
 	@Override

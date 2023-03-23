@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IncrementalProjectBuilder;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -34,18 +33,6 @@ public class BspBuilder extends IncrementalProjectBuilder {
         if (ids != null) {
             buildServer.buildTargetCompile(new CompileParams(ids)).join();
         }
-        refreshOutputDirectories(monitor);
         return null;
     }
-
-    /**
-     * Refresh the project to let JDT knows that the generated outputs exist in workspace.
-     * 
-     * Note: The resource update event needs to take some time to process. So there is
-     * still possible that the first run will fail with the class not found error.
-     */
-    private void refreshOutputDirectories(IProgressMonitor monitor) throws CoreException {
-        this.getProject().refreshLocal(IResource.DEPTH_INFINITE, monitor);
-    }
-
 }
