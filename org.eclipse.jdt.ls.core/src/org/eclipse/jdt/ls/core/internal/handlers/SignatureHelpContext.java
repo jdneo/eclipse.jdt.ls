@@ -53,6 +53,10 @@ public class SignatureHelpContext {
 	 */
 	private int secondaryCompletionOffset = -1;
 
+	private int leftParenthesesOffset = -1;
+
+	private int rightParenthesesOffset = -1;
+
 	/**
 	 * {@link #argumentRanges()}
 	 */
@@ -518,6 +522,7 @@ public class SignatureHelpContext {
 		int argumentStartPosition = completionOffset;
 		// Make sure we will start inside argument left bracket.
 		if (buffer.getChar(argumentStartPosition) == '(') {
+			leftParenthesesOffset = argumentStartPosition;
 			argumentStartPosition++;
 		}
 
@@ -591,6 +596,7 @@ public class SignatureHelpContext {
 							argumentRange[1] = argumentStartPosition + i;
 							list.add(argumentRange);
 						}
+						rightParenthesesOffset = argumentStartPosition + i;
 						this.argumentRanges = list;
 						return;
 					}
@@ -673,6 +679,14 @@ public class SignatureHelpContext {
 	 */
 	public List<int[]> argumentRanges() {
 		return argumentRanges;
+	}
+
+	public int getLeftParenthesesOffset() {
+		return leftParenthesesOffset;
+	}
+
+	public int getRightParenthesesOffset() {
+		return rightParenthesesOffset;
 	}
 
 	/**

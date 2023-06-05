@@ -14,6 +14,8 @@
 package org.eclipse.jdt.ls.core.internal.handlers;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 
@@ -38,18 +40,38 @@ import org.eclipse.lsp4j.SignatureInformation;
 public class SignatureHelpUtils {
 	private SignatureHelpUtils() {}
 
+	public static SignatureHelp getSignatureHelpFromProposals(ICompilationUnit unit, List<CompletionProposal> proposals,
+			int activeIndex) {
+		// only used to get the signature information.
+		SignatureHelpRequestor collector = new SignatureHelpRequestor(unit, "", Collections.emptyList());
+		List<SignatureInformation> infos = new LinkedList<>();
+		for (CompletionProposal completionProposal : proposals) {
+			SignatureInformation info = collector.toSignatureInformation(completionProposal);
+			if (info != null) {
+				infos.add(info);
+			}
+		}
+
+		SignatureHelp help = new SignatureHelp();
+		help.setSignatures(infos);
+
+		if (proposals.size() == infos.size() && activeIndex < infos.size() && activeIndex >= 0) {
+			help.setActiveSignature(activeIndex);
+		}
+		return help;
+	}
+
 	/**
 	 * Try to get signature help from the AST node. According to how the user code looks like,
 	 * there is possibility that we can not get a valid AST node. In that case, <code>null</code>
 	 * will returned.
+	 * @param context signature help context
 	 * @param unit compilation unit
 	 * @param triggerOffset offset where signature help is triggered
 	 * @param monitor the progress monitor
 	 */
-	public static SignatureHelp getSignatureHelpFromASTNode(ICompilationUnit unit, int triggerOffset, IProgressMonitor monitor) {
+	public static SignatureHelp getSignatureHelpFromASTNode(SignatureHelpContext context, ICompilationUnit unit, int triggerOffset, IProgressMonitor monitor) {
 		try {
-			SignatureHelpContext context = new SignatureHelpContext();
-			context.resolve(triggerOffset, unit, monitor);
 			SignatureHelp help = new SignatureHelp();
 			ASTNode targetNode = context.targetNode();
 			if (context.targetNode() == null) {
@@ -59,7 +81,7 @@ public class SignatureHelpUtils {
 			if (context.arguments() != null && context.arguments().isEmpty()) {
 				int nodeEnd = targetNode.getStartPosition() + targetNode.getLength();
 				if (unit.getBuffer().getChar(nodeEnd - 1) == ')' && nodeEnd <= triggerOffset) {
-					return help;
+					return null;
 				}
 			} else if (context.argumentRanges() != null && context.argumentRanges().size() > 0) {
 				// we use argument ranges (parsed from user's code) to check the offset, because
@@ -67,7 +89,7 @@ public class SignatureHelpUtils {
 				// argument.
 				int[] lastRange = context.argumentRanges().get(context.argumentRanges().size() - 1);
 				if (lastRange[1] < triggerOffset) {
-					return help;
+					return null;
 				}
 			}
 
@@ -97,6 +119,25 @@ public class SignatureHelpUtils {
 				}
 			}
 			return help;
+		} catch (JavaModelException e) {
+			JavaLanguageServerPlugin.logException(e);
+		}
+		return null;
+	}
+
+	/**
+	 * Try to get signature help from the AST node. According to how the user code looks like,
+	 * there is possibility that we can not get a valid AST node. In that case, <code>null</code>
+	 * will returned.
+	 * @param unit compilation unit
+	 * @param triggerOffset offset where signature help is triggered
+	 * @param monitor the progress monitor
+	 */
+	public static SignatureHelp getSignatureHelpFromASTNode(ICompilationUnit unit, int triggerOffset, IProgressMonitor monitor) {
+		try {
+			SignatureHelpContext context = new SignatureHelpContext();
+			context.resolve(triggerOffset, unit, monitor);
+			return getSignatureHelpFromASTNode(context, unit, triggerOffset, monitor);
 		} catch (JavaModelException e) {
 			JavaLanguageServerPlugin.logException(e);
 		}
@@ -172,20 +213,20 @@ public class SignatureHelpUtils {
 	 * @param proposal completion proposal
 	 * @param context signature help context
 	 */
-	private static int getActiveParameter(int triggerOffset, CompletionProposal proposal, SignatureHelpContext context) {
+	public static int getActiveParameter(int triggerOffset, CompletionProposal proposal, SignatureHelpContext context) {
 		if (triggerOffset >= context.completionOffset()) {
 			boolean isVarargs = Flags.isVarargs(proposal.getFlags());
-			String[] parameterTypes = Signature.getParameterTypes(String.valueOf(proposal.getSignature()));
+			int parameterCount = Signature.getParameterCount(proposal.getSignature());
 			// when no argument is written yet but the method has at least one parameter,
 			// return 0 as the active parameter index.
-			if (parameterTypes.length > 0 && context.argumentRanges().size() == 0) {
+			if (parameterCount > 0 && context.argumentRanges().isEmpty()) {
 				return 0;
 			}
 			for (int i = 0; i < context.argumentRanges().size(); i++) {
 				int[] range = context.argumentRanges().get(i);
 				if (range[0] <= triggerOffset && range[1] >= triggerOffset) {
-					if (i >= parameterTypes.length && isVarargs) {
-						return parameterTypes.length - 1;
+					if (i >= parameterCount && isVarargs) {
+						return parameterCount - 1;
 					}
 					return i;
 				}

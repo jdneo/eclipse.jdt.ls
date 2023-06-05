@@ -63,33 +63,90 @@ public class SignatureHelpHandler {
 		this.preferenceManager = preferenceManager;
 	}
 
-	public SignatureHelp signatureHelp(SignatureHelpParams position, IProgressMonitor monitor) {
-
-		SignatureHelp help = new SignatureHelp();
-
-		if (!preferenceManager.getPreferences().isSignatureHelpEnabled()) {
-			return help;
+	private SignatureHelp getSignatureHelpFromCachedCompletionProposal(SignatureHelpParams params, CompletionProposal proposal,
+			SignatureHelpContext context, ICompilationUnit unit, int offset) {
+		if (context.methodName() != null && !context.methodName().equals(String.valueOf(proposal.getName()))) {
+			return null;
 		}
+
+		String simpleDeclarationType = String.valueOf(Signature.getSignatureSimpleName(proposal.getDeclarationSignature()));
+		if (context.declaringTypeNames() != null && !context.declaringTypeNames().contains(simpleDeclarationType)) {
+			return null;
+		}
+
+		if (offset < context.getLeftParenthesesOffset() || offset > context.getRightParenthesesOffset()) {
+			return null;
+		}
+
+		int activeParameter = SignatureHelpUtils.getActiveParameter(offset, proposal, context);
+		if (activeParameter == -1) {
+			return null;
+		}
+
+		SignatureHelp signatureHelp = params.getContext().getActiveSignatureHelp();
+		if (signatureHelp == null) {
+			signatureHelp = SignatureHelpUtils.getSignatureHelpFromProposals(unit, Arrays.asList(proposal), 0);
+		}
+
+		boolean isVarargs = Flags.isVarargs(proposal.getFlags());
+		int parameterCount = Signature.getParameterCount(proposal.getSignature());
+		int argumentCount = context.argumentRanges().size();
+		if (argumentCount != 0 && (parameterCount < argumentCount && !isVarargs || parameterCount > argumentCount)) {
+			return null;
+		}
+		signatureHelp.setActiveParameter(activeParameter);
+		return signatureHelp;
+	}
+
+	public SignatureHelp signatureHelp(SignatureHelpParams params, IProgressMonitor monitor) {
+		if (!preferenceManager.getPreferences().isSignatureHelpEnabled()) {
+			return null;
+		}
+
 		try {
-			ICompilationUnit unit = JDTUtils.resolveCompilationUnit(position.getTextDocument().getUri());
+			ICompilationUnit unit = JDTUtils.resolveCompilationUnit(params.getTextDocument().getUri());
 			if (unit == null) {
-				return help;
+				return null;
 			}
-			final int offset = JsonRpcHelpers.toOffset(unit.getBuffer(), position.getPosition().getLine(), position.getPosition().getCharacter());
-			SignatureHelp helpFromASTNode = SignatureHelpUtils.getSignatureHelpFromASTNode(unit, offset, monitor);
+			final int offset = JsonRpcHelpers.toOffset(unit.getBuffer(), params.getPosition().getLine(), params.getPosition().getCharacter());
+
+			SignatureHelpContext context = new SignatureHelpContext();
+			context.resolve(offset, unit, monitor);
+			if (monitor.isCanceled()) {
+				return null;
+			}
+
+			CompletionProposal selectedProposal = CompletionHandler.getSelectedProposal();
+			if (selectedProposal != null) {
+				SignatureHelp signatureHelpForSelectedProposal = getSignatureHelpFromCachedCompletionProposal(
+					params, selectedProposal, context, unit, offset
+				);
+				if (signatureHelpForSelectedProposal != null) {
+					return signatureHelpForSelectedProposal;
+				}
+
+				CompletionHandler.resetSelectedProposal();
+			}
+
+			if (monitor.isCanceled()) {
+				return null;
+			}
+
+			SignatureHelp helpFromASTNode = SignatureHelpUtils.getSignatureHelpFromASTNode(context, unit, offset, monitor);
 			if (helpFromASTNode != null) {
 				return helpFromASTNode;
 			}
 
 			if (monitor.isCanceled()) {
-				return help;
+				return null;
 			}
 
 			int[] contextInfomation = getContextInfomation(unit.getBuffer(), offset);
 			ASTNode node = getNode(unit, contextInfomation, monitor);
 			if (node == null) {
-				return help;
+				return null;
 			}
+			SignatureHelp help = new SignatureHelp();
 			IMethod method = getMethod(node);
 			String name = method != null ? method.getElementName() : getMethodName(node, unit, contextInfomation);
 			SignatureHelpRequestor collector = new SignatureHelpRequestor(unit, name, null);
@@ -223,7 +280,7 @@ public class SignatureHelpHandler {
 		} catch (CoreException ex) {
 			JavaLanguageServerPlugin.logException("Find signatureHelp failure ", ex);
 		}
-		return help;
+		return null;
 	}
 
 	private boolean isSameParameters(IMethod m, SignatureHelp help, SignatureHelpRequestor collector, IJavaProject javaProject, IProgressMonitor monitor) throws JavaModelException {

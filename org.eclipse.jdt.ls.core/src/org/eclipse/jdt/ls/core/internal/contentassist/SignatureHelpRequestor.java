@@ -60,7 +60,6 @@ public final class SignatureHelpRequestor extends CompletionRequestor {
 	private List<CompletionProposal> proposals = new ArrayList<>();
 	private List<CompletionProposal> typeProposals = new ArrayList<>();
 	private final ICompilationUnit unit;
-	private CompletionProposalDescriptionProvider descriptionProvider;
 	private Map<SignatureInformation, CompletionProposal> infoProposals;
 	private boolean acceptType = false;
 	private String methodName;
@@ -141,15 +140,9 @@ public final class SignatureHelpRequestor extends CompletionRequestor {
 		}
 	}
 
-	@Override
-	public void acceptContext(CompletionContext context) {
-		super.acceptContext(context);
-		this.descriptionProvider = new CompletionProposalDescriptionProvider(unit, context);
-	}
-
 	public SignatureInformation toSignatureInformation(CompletionProposal methodProposal) {
 		SignatureInformation $ = new SignatureInformation();
-		StringBuilder description = descriptionProvider.createMethodProposalDescription(methodProposal);
+		StringBuilder description = CompletionProposalDescriptionProvider.createMethodProposalDescription(methodProposal);
 		$.setLabel(description.toString());
 		if (isDescriptionEnabled) {
 			$.setDocumentation(this.computeJavaDoc(methodProposal));

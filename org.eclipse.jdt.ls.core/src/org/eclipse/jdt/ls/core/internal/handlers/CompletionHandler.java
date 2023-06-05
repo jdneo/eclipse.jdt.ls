@@ -89,10 +89,20 @@ public class CompletionHandler{
 
 	};
 
+	private static CompletionProposal selectedProposal;
+
 	private PreferenceManager manager;
 
 	public CompletionHandler(PreferenceManager manager) {
 		this.manager = manager;
+	}
+
+	public static CompletionProposal getSelectedProposal() {
+		return selectedProposal;
+	}
+
+	public static void resetSelectedProposal() {
+		CompletionHandler.selectedProposal = null;
 	}
 
 	public Either<List<CompletionItem>, CompletionList> completion(CompletionParams params,
@@ -163,8 +173,14 @@ public class CompletionHandler{
 		int pId = Integer.parseInt(proposalId);
 		long rId = Long.parseLong(requestId);
 		CompletionResponse completionResponse = CompletionResponses.get(rId);
-		if (completionResponse == null || completionResponse.getItems().size() <= pId) {
+		if (completionResponse == null || completionResponse.getItems().size() <= pId
+				|| completionResponse.getProposals().size() <= pId) {
 			throw ExceptionFactory.newException("Cannot get completion responses.");
+		}
+
+		CompletionProposal cachedProposal = completionResponse.getProposals().get(pId);
+		if (cachedProposal != null) {
+			selectedProposal = cachedProposal;
 		}
 
 		CompletionItem item = completionResponse.getItems().get(pId);
